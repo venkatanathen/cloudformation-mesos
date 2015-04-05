@@ -129,6 +129,11 @@
             "Key" : "role",
             "Value" : "mesos-slave",
             "PropagateAtLaunch" : "true"
+          },
+          {
+            "Key" : "Name", 
+            "Value" : "mesos-slave",
+            "PropagateAtLaunch" : "true"
           }
         ]
       }

@@ -1,4 +1,4 @@
-CloudFormation templates for a [Mesos](http://mesos.apache.org) cluster running the [Marathon](https://github.com/mesosphere/marathon) framework.
+CloudFormation templates for a [Mesos](http://mesos.apache.org) cluster running the [Marathon](https://github.com/mesosphere/marathon) framework and [Chronos](https://github.com/mesos/chronos).
 
 Prerequisites:
 * An Exhibitor-managed ZooKeeper cluster such as provided by [thefactory/cloudformation-zookeeper](https://github.com/thefactory/cloudformation-zookeeper). Specifically, you'll need:
@@ -8,7 +8,7 @@ Prerequisites:
 ## Overview
 
 This project includes three templates:
-* `mesos-master.json` - Launch a set of Mesos masters running Marathon in an auto scaling group
+* `mesos-master.json` - Launch a set of Mesos masters running Marathon and Chronos in an auto scaling group
 * `mesos-slave.json` - Launch a set of Mesos slaves in an auto scaling group
 * `mesos.json` - Creates both a `mesos-master` and `mesos-slave` stack from the corresponding templates.
 
@@ -17,6 +17,8 @@ In general, you'll want to launch the Mesos cluster via `mesos.json`.
 Mesos servers are launched from public AMIs running Ubuntu 14.04 LTS and pre-loaded with Docker, Runit, and Mesos. If you wish to use your own image, simply modify `RegionMap` in `mesos.json`.
 
 Marathon is run on the masters via a Docker image specified as a Parameter. You can use the default or provide your own.
+
+Chronos is run on the masters via a Docker image specified as a Parameter. You can use the default or provide your own.
 
 To adjust cluster capacity, simply increment or decrement the slave auto scaling group. You can do the same for the masters. Node addition/removal should be handled transparently by Mesos.
 
@@ -28,7 +30,7 @@ Note that this template must be used with Amazon VPC. New AWS accounts automatic
 
 ### 1. Clone the repository
 ```bash
-git clone git@github.com:mbabineau/cloudformation-mesos.git
+git clone git@github.com:usebutton/cloudformation-mesos.git
 ```
 
 ### 2. Create an Admin security group
@@ -38,6 +40,7 @@ Inbound rules are at your discretion, but you may want to include access to:
 * `22 [tcp]` - SSH port
 * `5050 [tcp]` - Mesos Master port
 * `8080 [tcp]` - Marathon port
+* `8081 [tcp]` - Chronos port
 
 ### 3. Set up ZooKeeper
 You can use the instructions and template at [thefactory/cloudformation-zookeeper](https://github.com/thefactory/cloudformation-zookeeper), or you can use an existing cluster.
@@ -95,4 +98,4 @@ Once the stack has been provisioned, visit `http://<host>:5050/` (for Mesos) on 
 
 _Note the Docker image for Marathon may take several minutes to retrieve. This can be improved with the use of a private Docker registry._
 
-You should see the Mesos management UI with the state of the cluster. Once you see slaves listed, you can begin running apps through Marathon at `http://<host>:8080/` on the same server.
+You should see the Mesos management UI with the state of the cluster. Once you see slaves listed, you can begin running apps through Marathon at `http://<host>:8080/` or Chronos at `http://<host>:8081/` on the same server.
