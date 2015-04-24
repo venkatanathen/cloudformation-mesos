@@ -2,7 +2,7 @@
 {
   "AWSTemplateFormatVersion" : "2010-09-09",
 
-  "Description" : "Launches a Mesos Master+Marathon cluster",
+  "Description" : "Launches a pool of Mesos Masters",
 
   "Parameters" : {
     "InstanceAmi" : {
@@ -14,17 +14,19 @@
       "Type" : "String",
       "Default" : "t2.micro",
       "AllowedValues" : [
-        "t2.micro", "t2.small", "t2.medium", "m3.medium", "m3.large", "m3.xlarge", "m3.2xlarge",
-        "c4.large", "c4.xlarge", "c4.2xlarge", "c4.4xlarge", "c4.8xlarge", "c3.large", "c3.xlarge", "c3.2xlarge", "c3.4xlarge", "c3.8xlarge",
+        "t2.micro", "t2.small", "t2.medium",
+        "m3.medium", "m3.large", "m3.xlarge", "m3.2xlarge",
+        "c3.large", "c3.xlarge", "c3.2xlarge", "c3.4xlarge", "c3.8xlarge",
+        "c4.large", "c4.xlarge", "c4.2xlarge", "c4.4xlarge", "c4.8xlarge",
         "r3.large", "r3.xlarge", "r3.2xlarge", "r3.4xlarge", "r3.8xlarge",
-        "i2.xlarge", "i2.2xlarge", "i2.4xlarge", "i2.8xlarge", "hs1.8xlarge",
-        "g2.2xlarge"
+        "i2.xlarge", "i2.2xlarge", "i2.4xlarge", "i2.8xlarge",
+        "hs1.8xlarge", "g2.2xlarge"
       ],
       "ConstraintDescription" : "must be a valid, HVM-compatible EC2 instance type."
     },
     "KeyName" : {
       "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the instances",
-      "Type" : "String"
+      "Type" : "AWS::EC2::KeyPair::KeyName"
     },
     "ClusterId" : {
       "Description" : "Mesos cluster ID",
@@ -44,11 +46,11 @@
     },
     "ZkClientSecurityGroup" : {
       "Description" : "Security group ID for ZK clients (should grant access to ZK nodes)",
-      "Type" : "String"
+      "Type" : "AWS::EC2::SecurityGroup::Id"
     },
     "AdminSecurityGroup" : {
       "Description" : "Existing security group that should be granted administrative access to Mesos (e.g., 'sg-123456')",
-      "Type": "String"
+      "Type" : "AWS::EC2::SecurityGroup::Id"
     },
     "MarathonDockerImage" : {
       "Description" : "The Marathon Docker image (format: 'registry:port/repository:version')",
@@ -75,20 +77,29 @@
       "Type" : "String",
       "Default" : ""
     },
+    "ConfigScriptS3Bucket" : {
+      "Description" : "(optional) S3 bucket of an executable to download and run after other boot-time provisioning (e.g., \"my-bucket\").",
+      "Type" : "String",
+      "Default" : ""
+    },
+    "ConfigScriptS3Path" : {
+      "Description" : "(optional) Path within ConfigScriptS3Bucket of an executable to download and run after other boot-time provisioning (e.g., \"/path/to/script\").",
+      "Type" : "String",
+      "Default" : ""
+    },
     "Subnets" : {
       "Description" : "List of VPC subnet IDs for the cluster. Must match the passed AvailabilityZones.",
-      "Type" : "CommaDelimitedList"
+      "Type" : "List<AWS::EC2::Subnet::Id>"
     },
     "VpcId" : {
       "Description" : "VPC associated with the provided subnets",
-      "Type" : "String"
+      "Type" : "AWS::EC2::VPC::Id"
     },
     "AvailabilityZones": {
       "Description" : "(Optional) If passed, only launch nodes in these AZs (e.g., 'us-east-1a,us-east-1b'). Must match the passed Subnets.",
       "Type" : "CommaDelimitedList",
       "Default" : ""
     },
-
     "StackCreationTimeout" : {
       "Description" : "Timeout on initial stack creation",
       "Type" : "String",
@@ -98,30 +109,53 @@
 
   "Conditions" : {
     "EnableLogstashCondition" : { "Fn::Not" : [{ "Fn::Equals" : [{ "Ref" : "LogstashConfig" }, ""] }] },
+    "EnableConfigScript" : { "Fn::And" : [
+      { "Fn::Not" : [{ "Fn::Equals" : [{ "Ref" : "ConfigScriptS3Bucket" }, ""] }]},
+      { "Fn::Not" : [{ "Fn::Equals" : [{ "Ref" : "ConfigScriptS3Path" }, ""] }]}
+    ]},
     "UseAllAvailabilityZones" : { "Fn::Equals" : [{ "Fn::Join" : ["", { "Ref" : "AvailabilityZones"} ]}, ""]}
   },
 
   "Resources" : {
-    "IAMUser" : {
-      "Type" : "AWS::IAM::User",
-      "Properties" : {
-        "Policies" : [{
-          "PolicyName" : "IAMAccess",
-          "PolicyDocument" : {
-            "Statement" : [{
-              "Effect"    : "Allow",
-              "NotAction" : "iam:*",
-              "Resource"  : "*"
-            }]
+    "MasterRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version" : "2012-10-17",
+          "Statement": [ {
+            "Effect": "Allow",
+            "Principal": {
+              "Service": [ "ec2.amazonaws.com" ]
+            },
+            "Action": [ "sts:AssumeRole" ]
+          } ]
+        },
+        "Path": "/",
+        "Policies": [ {
+          "PolicyName": "root",
+          "PolicyDocument": {
+            "Version" : "2012-10-17",
+            "Statement": [ {
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetObject"
+              ],
+              "Resource": [
+                { "Fn::Join" : ["", ["arn:aws:s3:::", { "Ref" : "ConfigScriptS3Bucket" }, { "Ref" : "ConfigScriptS3Path" }]]}
+              ]
+            } ]
           }
-        }]
+        } ]
       }
     },
 
-    "HostKeys" : {
-      "Type" : "AWS::IAM::AccessKey",
-      "Properties" : {
-        "UserName" : { "Ref" : "IAMUser" }
+    "MasterInstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [ {
+          "Ref": "MasterRole"
+        } ]
       }
     },
 
@@ -161,8 +195,12 @@
       "Metadata" : {
         "AWS::CloudFormation::Init" : {
           "config": {
+            "packages" : {
+              "python": {
+                "awscli": []
+              }
+            },
             "files" : {
-
               "/usr/local/bin/zk-list-nodes" : {
                 "content" : { "Fn::Join" : ["", [
                   "#!/bin/bash -e\n",
@@ -179,7 +217,7 @@
                 "owner"   : "root",
                 "group"   : "root"
               },
-              
+
               "/usr/local/bin/configure-mesos-master" : {
                 "content" : { "Fn::Join" : ["\n", [
                   "#!/bin/bash -e",
@@ -220,7 +258,6 @@
                 "owner"   : "root",
                 "group"   : "root"
               }
-
             }
           }
         }
@@ -230,6 +267,7 @@
         "ImageId" : { "Ref" : "InstanceAmi" },
         "SecurityGroups" : [ { "Ref" : "MasterSecurityGroup" }, { "Ref" : "ZkClientSecurityGroup" }, { "Ref" : "AdminSecurityGroup" } ],
         "AssociatePublicIpAddress" : "true",
+        "IamInstanceProfile" : { "Ref" : "MasterInstanceProfile" },
         "InstanceType" : { "Ref" : "InstanceType" },
         "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
           "#!/bin/bash -ex\n",
@@ -242,12 +280,10 @@
               " --stack ", { "Ref" : "AWS::StackName" },
               " --region ", { "Ref" : "AWS::Region" }, "\n",
           "  exit 1\n",
-          "}\n",        
+          "}\n",
 
           "# Process CloudFormation init definitions\n",
           "cfn-init -s ", { "Ref" : "AWS::StackName" }, " -r LaunchConfig ",
-          "    --access-key ",  { "Ref" : "HostKeys" },
-          "    --secret-key ", {"Fn::GetAtt": ["HostKeys", "SecretAccessKey"]},
           "    --region ", { "Ref" : "AWS::Region" }, " || error_exit 'Failed to run cfn-init'\n",
 
           "# Move docker dir to bigger device\n",
@@ -296,6 +332,18 @@
           "     --callback-url http://localhost:5000/events",
           "     --event-store ", { "Ref": "MarathonLoggerEventStore" }, "'\n",
           "runit-service enable marathon-logger\n",
+
+          { "Fn::If" : [
+            "EnableConfigScript",
+            { "Fn::Join" : ["", [
+              "# Download and run the user-provided config script \n",
+              "aws --region ", { "Ref" : "AWS::Region" },
+              "  s3 cp s3://", { "Ref" : "ConfigScriptS3Bucket" }, { "Ref" : "ConfigScriptS3Path" }, " /tmp/cfn-user-config\n",
+              "chmod +x /tmp/cfn-user-config\n",
+              "/tmp/cfn-user-config || error_exit \n"
+            ]]},
+            ""
+          ]},
 
           "# All is well so signal success\n",
           "cfn-signal -e 0 -r \"Stack setup complete\" ",
