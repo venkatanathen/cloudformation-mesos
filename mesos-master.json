@@ -12,7 +12,7 @@
     "InstanceType" : {
       "Description" : "EC2 instance type",
       "Type" : "String",
-      "Default" : "t2.medium",
+      "Default" : "t2.micro",
       "AllowedValues" : [
         "t2.micro", "t2.small", "t2.medium", "m3.medium", "m3.large", "m3.xlarge", "m3.2xlarge",
         "c4.large", "c4.xlarge", "c4.2xlarge", "c4.4xlarge", "c4.8xlarge", "c3.large", "c3.xlarge", "c3.2xlarge", "c3.4xlarge", "c3.8xlarge",
@@ -74,11 +74,6 @@
       "Description" : "(optional) Config string for Logstash",
       "Type" : "String",
       "Default" : ""
-    },
-    "S3InstanceProfile" : {
-      "Description" : "(optional) Config string for IAM role",
-      "Type" : "String",
-      "Default" : "mesos"
     },
     "Subnets" : {
       "Description" : "List of VPC subnet IDs for the cluster. Must match the passed AvailabilityZones.",
@@ -149,11 +144,6 @@
         "Tags" : [
           {
             "Key" : "role",
-            "Value" : "mesos-master",
-            "PropagateAtLaunch" : "true"
-          },
-          {
-            "Key" : "Name",
             "Value" : "mesos-master",
             "PropagateAtLaunch" : "true"
           }
@@ -241,7 +231,6 @@
         "SecurityGroups" : [ { "Ref" : "MasterSecurityGroup" }, { "Ref" : "ZkClientSecurityGroup" }, { "Ref" : "AdminSecurityGroup" } ],
         "AssociatePublicIpAddress" : "true",
         "InstanceType" : { "Ref" : "InstanceType" },
-        "IamInstanceProfile" : { "Ref" : "S3InstanceProfile" },
         "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
           "#!/bin/bash -ex\n",
 
@@ -253,7 +242,7 @@
               " --stack ", { "Ref" : "AWS::StackName" },
               " --region ", { "Ref" : "AWS::Region" }, "\n",
           "  exit 1\n",
-          "}\n", 
+          "}\n",        
 
           "# Process CloudFormation init definitions\n",
           "cfn-init -s ", { "Ref" : "AWS::StackName" }, " -r LaunchConfig ",
